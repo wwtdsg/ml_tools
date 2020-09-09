@@ -8,3 +8,4 @@ img/
 fonts/
 __pycache__/
 lm_corpus/
+.idea/

@@ -9,7 +9,6 @@ import numpy as np
 import cv2
 from scipy.stats import entropy
 from torch.utils.data import Dataset
-from sklearn.cluster import KMeans
 import os
 from PIL import Image, ImageFont, ImageDraw, ImageFilter
 import PIL
@@ -632,6 +631,39 @@ def cal_roi(img, img_root_dir):
     return img, (x1 - box_width, y1 - box_width), (x2 + box_width, y2 + box_width)
 
 
+def parent_contour_chk(cnt):
+    area = cv2.contourArea(cnt)
+    perimeter = cv2.arcLength(cnt, True)
+
+    rect = cv2.minAreaRect(cnt)
+
+    rect_perimeter = 2 * (sum(rect[1]))
+    hull_perimeter = cv2.arcLength(cv2.convexHull(cnt), True)
+
+    if area > 400 or area < 50 \
+            or abs(rect[1][0] - rect[1][1]) > 2 \
+            or abs(rect_perimeter - perimeter) > 5 \
+            or abs(perimeter - hull_perimeter) > 3:
+        return False
+    return True
+
+
+def child_contour_chk(cnt, gray_img):
+    area = cv2.contourArea(cnt)
+    perimeter = cv2.arcLength(cnt, True)
+
+    rect = cv2.minAreaRect(cnt)
+
+    rect_perimeter = 2 * (sum(rect[1]))
+    hull_perimeter = cv2.arcLength(cv2.convexHull(cnt), True)
+
+    if abs(rect[1][0] - rect[1][1]) > 2 \
+            or abs(rect_perimeter - perimeter) > 5 \
+            or abs(perimeter - hull_perimeter) > 3:
+        return False
+    return True
+
+
 def contour_find(img_file):
     time0 = time.time()
     # gray_img = cv2.imread(img_file, 0)
@@ -659,37 +691,28 @@ def contour_find(img_file):
     cv2.drawContours(img, contours, -1, (255, 255, 0), 1)
     cv2.imwrite('contours0.png', img)
     for i in range(len(contours)):
-        if hierarchy[i][2] != -1 and ic == 0:
-            parent_idx = i
-            ic += 1
-        elif hierarchy[i][2] != -1:
-            ic += 1
-        elif hierarchy[i][2] == -1:
-            parent_idx = -1
-            ic = 0
-        if ic == 1:
-            cnt = contours[parent_idx]
-            area = cv2.contourArea(cnt)
-            perimeter = cv2.arcLength(cnt, True)
-            ic, parent_idx = 0, -1
+        if hierarchy[i][2] == -1 and hierarchy[i][3] != -1:
+            parent_idx = hierarchy[i][3]
+            parent_cnt = contours[parent_idx]
+            child_cnt = contours[i]
+            # ic, parent_idx = 0, -1
 
-            rect = cv2.minAreaRect(cnt)
-            rect_perimeter = 2 * (sum(rect[1]))
-            hull_perimeter = cv2.arcLength(cv2.convexHull(cnt), True)
-            if area > 400 or area < 50 \
-                    or abs(rect[1][0] - rect[1][1]) > 2 \
-                    or abs(rect_perimeter - perimeter) > 5 \
-                    or abs(perimeter - hull_perimeter) > 3:
-                parent_idx = -1
+            if not parent_contour_chk(parent_cnt):
                 continue
+            if not child_contour_chk(child_cnt, gray_img):
+                continue
+            rect = cv2.minAreaRect(parent_cnt)
+
+            # print('contour likely:', d1)
             rects.append(rect)
-            cnts.append(cnt)
+            cnts.append(parent_cnt)
     print(time.time() - time0)
     if len(rects) > 1:
         # todo
         for rect in rects:
-            pts = cv2.boxPoints(rect).astype(np.int)
+            pts = cv2.boxPoints(rect)
             print(pts)
+        pass
     time1 = time.time()
     print(time.time() - time0)
     pts = cv2.boxPoints(rects[0]).astype(np.int)
@@ -702,9 +725,11 @@ def contour_find(img_file):
 
 
 if __name__ == '__main__':
+    hausdorff_sd = cv2.createHausdorffDistanceExtractor()
+    test_img = r'/Users/wangtao/Documents/work/control-point/ctl_point/code/0929-2_D_0856.jpg'
     kh_img_file_path = '/media/chen/wt/tmp/kk/kh.png'
     kgt_img_file_path = '/media/chen/wt/tmp/kk/sdyf_kh.png'
-    test_img = r'/media/chen/wt/tmp/control_point/0829-1_D_0440_code.jpg'
+    # test_img = r'/media/chen/wt/tmp/control_point/0929-2_D_0856_2.jpg'
     contour_find(test_img)
     # locate_ctl_point(test_img)
     # kgt_area_detect(test_img)
