@@ -1,0 +1,10 @@
+*.pth
+*.png
+*.jpg
+*.jpeg
+*.log
+*.ttf
+img/
+fonts/
+__pycache__/
+lm_corpus/
