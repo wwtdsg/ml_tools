@@ -725,6 +725,40 @@ def contour_chk(parent_cnt, child_cnt, gray_img):
     return True
 
 
+def crop_possible_region(ctl_box, img):
+    ctl_point = ctl_box[0]
+    w, h = ctl_box[1]
+    ave_wh = np.mean(ctl_box[1])
+    angle = ctl_box[2]
+    gap = ave_wh / 6
+    w, h = w + gap * 2, h + gap * 2
+    # code_inner = ctl_box[1] + gap
+    # new_rect = (ctl_point, (w + gap * 2, h), angle)
+    white_box = cv2.boxPoints((ctl_point, (w, h), angle))
+    outer_box = cv2.boxPoints((ctl_point, (w + gap * 2, h), angle))
+    code_box = cv2.boxPoints((ctl_point, (w + gap * 6, h), angle))
+
+    edge1 = np.linalg.norm(outer_box[0, :] - outer_box[1, :])
+    edge2 = np.linalg.norm(outer_box[1, :] - outer_box[2, :])
+    if edge1 > edge2:
+        gap_point1 = np.array([white_box[1, :], white_box[2, :], outer_box[2, :], outer_box[1, :]]).astype(np.uint)
+        code_point = np.array([outer_box[1, :], outer_box[2, :], code_box[2, :], code_box[1, :]]).astype(np.uint)
+    else:
+        gap_point1 = np.array([white_box[0, :], white_box[1, :], outer_box[1, :], outer_box[0, :]]).astype(np.uint)
+        code_point = np.array([outer_box[0, :], outer_box[1, :], code_box[1, :], code_box[0, :]]).astype(np.uint)
+
+    cv2.drawContours(img, [gap_point1], -1, (255, 0, 0), 1)
+    cv2.drawContours(img, [code_point], -1, (255, 255, 0), 1)
+    cv2.imwrite('possible.png', img)
+
+    code_rect = cv2.minAreaRect(code_point)
+
+
+    print(white_box)
+    print(outer_box)
+    return True
+
+
 def contour_find(img_file):
     time0 = time.time()
     # gray_img = cv2.imread(img_file, 0)
@@ -749,7 +783,7 @@ def contour_find(img_file):
     ic, parent_idx = 0, -1
     rects = []
     cnts = []
-    cv2.drawContours(img, contours, -1, (255, 255, 0), 1)
+    # cv2.drawContours(img, contours, -1, (255, 255, 0), 1)
     # cv2.imwrite('contours0.png', img)
     for i in range(len(contours)):
         if hierarchy[i][2] == -1 and hierarchy[i][3] != -1:
@@ -769,7 +803,7 @@ def contour_find(img_file):
     if len(rects) != 1:
         # todo
         print("ctl point count:", len(rects))
-        print("not found any ctl point or more than one ctl point")
+        print("can't find any ctl point or more than one ctl point")
         return
     # time1 = time.time()
     print(time.time() - time0)
@@ -779,15 +813,14 @@ def contour_find(img_file):
     cv2.drawContours(img, cnts, -1, (0, 255, 0), 1)
     cv2.imwrite(os.path.split(img_file)[-1], img)
 
-    ctl_box = rects[0]
-
+    crop_possible_region(rects[0], img)
 
     print('aaaaa')
 
 
 if __name__ == '__main__':
     # hausdorff_sd = cv2.createHausdorffDistanceExtractor()
-    test_img = r'/media/chen/wt/tmp/control_point/0829-1_D_0440_code.jpg'
+    test_img = r'/media/chen/wt/tmp/control_point/0929-2_D_0856_code.jpg'
     kh_img_file_path = '/media/chen/wt/tmp/kk/kh.png'
     kgt_img_file_path = '/media/chen/wt/tmp/kk/sdyf_kh.png'
     # test_img = r'/media/chen/wt/tmp/control_point/0929-2_D_0856_2.jpg'
