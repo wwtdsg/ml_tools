@@ -633,25 +633,9 @@ def cal_roi(img, img_root_dir):
 
 def parent_contour_chk(cnt):
     area = cv2.contourArea(cnt)
-    perimeter = cv2.arcLength(cnt, True)
-
-    rect = cv2.minAreaRect(cnt)
-
-    rect_perimeter = 2 * (sum(rect[1]))
-    hull_perimeter = cv2.arcLength(cv2.convexHull(cnt), True)
-
-    if area > 400 or area < 50 \
-            or abs(rect[1][0] - rect[1][1]) > 2 \
-            or abs(rect_perimeter - perimeter) > 5 \
-            or abs(perimeter - hull_perimeter) > 3:
+    if area > 400 or area < 50:
         return False
-    return True
-
-
-def child_contour_chk(cnt, gray_img):
-    area = cv2.contourArea(cnt)
     perimeter = cv2.arcLength(cnt, True)
-
     rect = cv2.minAreaRect(cnt)
 
     rect_perimeter = 2 * (sum(rect[1]))
@@ -661,6 +645,83 @@ def child_contour_chk(cnt, gray_img):
             or abs(rect_perimeter - perimeter) > 5 \
             or abs(perimeter - hull_perimeter) > 3:
         return False
+    return True
+
+
+def child_contour_chk(cnt, gray_img):
+    # M = cv2.moments(cnt)
+    # cx = int(M['m10'] / M['m00'])
+    # cy = int(M['m01'] / M['m00'])
+    # print(cx, cy)
+    mask = np.zeros(gray_img.shape[:2], np.uint8)
+    cv2.drawContours(mask, [cnt], -1, 255, -1)
+    roi = cv2.bitwise_and(gray_img, gray_img, mask=mask)
+    pixel_sum = np.sum(roi)
+    pixel_count = cv2.countNonZero(roi)
+    ave_pixel_val = pixel_sum / pixel_count
+
+    # rect = cv2.boundingRect(cnt)
+    #
+    # rect_perimeter = 2 * (sum(rect[1]))
+    # hull_perimeter = cv2.arcLength(cv2.convexHull(cnt), True)
+    #
+    # if abs(rect[1][0] - rect[1][1]) > 2 \
+    #         or abs(rect_perimeter - perimeter) > 5 \
+    #         or abs(perimeter - hull_perimeter) > 3:
+    #     return False
+    if ave_pixel_val > 210:
+        return True
+    else:
+        return False
+
+
+def get_roi_img(cnt, gray_img):
+    new_cnt = np.zeros_like(cnt)
+    rect = cv2.boundingRect(cnt)
+    x1, y1 = rect[0], rect[1]
+    x2, y2 = rect[0] + rect[2], rect[1] + rect[3]
+    roi_img = gray_img[y1: y2, x1: x2]
+    new_cnt[:, 0, 0] = cnt[:, 0, 0] - x1 + 1
+    new_cnt[:, 0, 1] = cnt[:, 0, 1] - y1 + 1
+    return roi_img, new_cnt, (x1, y1)
+
+
+def contour_chk(parent_cnt, child_cnt, gray_img):
+    if not parent_contour_chk(parent_cnt):
+        return False
+    gray_img, parent_cnt, (x1, y1) = get_roi_img(parent_cnt, gray_img)
+    # cnt = parent_cnt
+    # rect = cv2.boundingRect(cnt)
+    # x1, y1 = rect[0], rect[1]
+    # x2, y2 = rect[0] + rect[2], rect[1] + rect[3]
+    # gray_img = gray_img[y1: y2, x1: x2]
+    # cnt[:, 0, 0] = cnt[:, 0, 0] - x1 + 1
+    # cnt[:, 0, 1] = cnt[:, 0, 1] - y1 + 1
+
+    child_cnt[:, 0, 0] = child_cnt[:, 0, 0] - x1
+    child_cnt[:, 0, 1] = child_cnt[:, 0, 1] - y1
+
+    mask_out = np.zeros(gray_img.shape[:2], np.uint8)
+    cv2.drawContours(mask_out, [parent_cnt], -1, 255, -1)
+    mask_in = np.ones(gray_img.shape[:2], np.uint8) * 255
+    cv2.drawContours(mask_in, [child_cnt], -1, 0, -1)
+
+    mask_ring = cv2.bitwise_and(mask_out, mask_in)
+    ring_pixel_count = cv2.countNonZero(mask_ring)
+
+    mask_in = 255 - mask_in
+    roi_in = cv2.bitwise_and(gray_img, gray_img, mask=mask_in)
+    # cv2.imwrite('roi_in.jpg', roi_in)
+
+    pixel_sum = np.sum(roi_in)
+    if pixel_sum is None:
+        print('???')
+    pixel_count = cv2.countNonZero(roi_in) + 0.0001
+    ave_pixel_val = pixel_sum / pixel_count
+
+    if ave_pixel_val < 210 or not (pixel_count * 3 < ring_pixel_count < pixel_count * 6):
+        return False
+
     return True
 
 
@@ -679,8 +740,8 @@ def contour_find(img_file):
     _, thresh_img = cv2.threshold(gray_img, 150, 255, cv2.THRESH_BINARY)
     # thresh_img = cv2.adaptiveThreshold(gray_img, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, 33, 3)
     # 自适应阈值二值化速度太慢了，无法满足要求
-    cv2.imwrite('thresh_img.png', thresh_img)
-
+    # cv2.imwrite('thresh_img.png', thresh_img)
+    #
     contours, hierarchy = cv2.findContours(thresh_img, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
     print(time.time() - time0)
     # for cnt in contours:
@@ -689,31 +750,28 @@ def contour_find(img_file):
     rects = []
     cnts = []
     cv2.drawContours(img, contours, -1, (255, 255, 0), 1)
-    cv2.imwrite('contours0.png', img)
+    # cv2.imwrite('contours0.png', img)
     for i in range(len(contours)):
         if hierarchy[i][2] == -1 and hierarchy[i][3] != -1:
             parent_idx = hierarchy[i][3]
             parent_cnt = contours[parent_idx]
             child_cnt = contours[i]
-            # ic, parent_idx = 0, -1
 
-            if not parent_contour_chk(parent_cnt):
+            if not contour_chk(parent_cnt, child_cnt, gray_img):
                 continue
-            if not child_contour_chk(child_cnt, gray_img):
-                continue
+            # contour_chk(parent_cnt, child_cnt, gray_img)
             rect = cv2.minAreaRect(parent_cnt)
 
             # print('contour likely:', d1)
             rects.append(rect)
             cnts.append(parent_cnt)
     print(time.time() - time0)
-    if len(rects) > 1:
+    if len(rects) != 1:
         # todo
-        for rect in rects:
-            pts = cv2.boxPoints(rect)
-            print(pts)
-        pass
-    time1 = time.time()
+        print("ctl point count:", len(rects))
+        print("not found any ctl point or more than one ctl point")
+        return
+    # time1 = time.time()
     print(time.time() - time0)
     pts = cv2.boxPoints(rects[0]).astype(np.int)
 
@@ -721,12 +779,15 @@ def contour_find(img_file):
     cv2.drawContours(img, cnts, -1, (0, 255, 0), 1)
     cv2.imwrite(os.path.split(img_file)[-1], img)
 
+    ctl_box = rects[0]
+
+
     print('aaaaa')
 
 
 if __name__ == '__main__':
-    hausdorff_sd = cv2.createHausdorffDistanceExtractor()
-    test_img = r'/Users/wangtao/Documents/work/control-point/ctl_point/code/0929-2_D_0856.jpg'
+    # hausdorff_sd = cv2.createHausdorffDistanceExtractor()
+    test_img = r'/media/chen/wt/tmp/control_point/0829-1_D_0440_code.jpg'
     kh_img_file_path = '/media/chen/wt/tmp/kk/kh.png'
     kgt_img_file_path = '/media/chen/wt/tmp/kk/sdyf_kh.png'
     # test_img = r'/media/chen/wt/tmp/control_point/0929-2_D_0856_2.jpg'
