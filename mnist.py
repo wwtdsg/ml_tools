@@ -719,7 +719,7 @@ def contour_chk(parent_cnt, child_cnt, gray_img):
     pixel_count = cv2.countNonZero(roi_in) + 0.0001
     ave_pixel_val = pixel_sum / pixel_count
 
-    if ave_pixel_val < 210 or not (pixel_count * 3 < ring_pixel_count < pixel_count * 6):
+    if ave_pixel_val < 180 or not (pixel_count * 3 < ring_pixel_count < pixel_count * 6):
         return False
 
     return True
@@ -774,7 +774,7 @@ def contour_find(img_file):
     _, thresh_img = cv2.threshold(gray_img, 150, 255, cv2.THRESH_BINARY)
     # thresh_img = cv2.adaptiveThreshold(gray_img, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, 33, 3)
     # 自适应阈值二值化速度太慢了，无法满足要求
-    # cv2.imwrite('thresh_img.png', thresh_img)
+    cv2.imwrite('thresh_img.png', thresh_img)
     #
     contours, hierarchy = cv2.findContours(thresh_img, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
     print(time.time() - time0)
@@ -783,8 +783,8 @@ def contour_find(img_file):
     ic, parent_idx = 0, -1
     rects = []
     cnts = []
-    # cv2.drawContours(img, contours, -1, (255, 255, 0), 1)
-    # cv2.imwrite('contours0.png', img)
+    cv2.drawContours(img, contours, -1, (255, 255, 0), 1)
+    cv2.imwrite('contours0.png', img)
     for i in range(len(contours)):
         if hierarchy[i][2] == -1 and hierarchy[i][3] != -1:
             parent_idx = hierarchy[i][3]
@@ -820,7 +820,7 @@ def contour_find(img_file):
 
 if __name__ == '__main__':
     # hausdorff_sd = cv2.createHausdorffDistanceExtractor()
-    test_img = r'/media/chen/wt/tmp/control_point/0929-2_D_0856_code.jpg'
+    test_img = r'/media/chen/wt/tmp/control_point/0929-2_D_0826_code_a3.jpg'
     kh_img_file_path = '/media/chen/wt/tmp/kk/kh.png'
     kgt_img_file_path = '/media/chen/wt/tmp/kk/sdyf_kh.png'
     # test_img = r'/media/chen/wt/tmp/control_point/0929-2_D_0856_2.jpg'
