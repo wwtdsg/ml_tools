@@ -676,30 +676,18 @@ def child_contour_chk(cnt, gray_img):
 
 
 def get_roi_img(cnt, gray_img):
-    new_cnt = np.zeros_like(cnt)
+    # new_cnt = np.zeros_like(cnt)
     rect = cv2.boundingRect(cnt)
     x1, y1 = rect[0], rect[1]
     x2, y2 = rect[0] + rect[2], rect[1] + rect[3]
     roi_img = gray_img[y1: y2, x1: x2]
-    new_cnt[:, 0, 0] = cnt[:, 0, 0] - x1 + 1
-    new_cnt[:, 0, 1] = cnt[:, 0, 1] - y1 + 1
-    return roi_img, new_cnt, (x1, y1)
+    # new_cnt[:, 0, 0] = cnt[:, 0, 0] - x1 + 1
+    # new_cnt[:, 0, 1] = cnt[:, 0, 1] - y1 + 1
+    return roi_img  # , new_cnt, (x1, y1)
 
 
-def contour_chk(parent_cnt, child_cnt, gray_img):
-    if not parent_contour_chk(parent_cnt):
-        return False
-    gray_img, parent_cnt, (x1, y1) = get_roi_img(parent_cnt, gray_img)
-    # cnt = parent_cnt
-    # rect = cv2.boundingRect(cnt)
-    # x1, y1 = rect[0], rect[1]
-    # x2, y2 = rect[0] + rect[2], rect[1] + rect[3]
-    # gray_img = gray_img[y1: y2, x1: x2]
-    # cnt[:, 0, 0] = cnt[:, 0, 0] - x1 + 1
-    # cnt[:, 0, 1] = cnt[:, 0, 1] - y1 + 1
-
-    child_cnt[:, 0, 0] = child_cnt[:, 0, 0] - x1
-    child_cnt[:, 0, 1] = child_cnt[:, 0, 1] - y1
+def is_corner(gray_img, parent_cnt, child_cnt):
+            # if rect[2] <
 
     mask_out = np.zeros(gray_img.shape[:2], np.uint8)
     cv2.drawContours(mask_out, [parent_cnt], -1, 255, -1)
@@ -711,7 +699,7 @@ def contour_chk(parent_cnt, child_cnt, gray_img):
 
     mask_in = 255 - mask_in
     roi_in = cv2.bitwise_and(gray_img, gray_img, mask=mask_in)
-    # cv2.imwrite('roi_in.jpg', roi_in)
+    cv2.imwrite('roi_in.jpg', roi_in)
 
     pixel_sum = np.sum(roi_in)
     if pixel_sum is None:
@@ -721,8 +709,61 @@ def contour_chk(parent_cnt, child_cnt, gray_img):
 
     if ave_pixel_val < 180 or not (pixel_count * 3 < ring_pixel_count < pixel_count * 6):
         return False
-
     return True
+
+
+def contour_chk(contour, gray_img):
+    if not parent_contour_chk(contour):
+        return False
+    # gray_img, parent_cnt, (x1, y1) = get_roi_img(contour, gray_img)
+    gray_img = get_roi_img(contour, gray_img)
+    # cv2.imwrite('roi_img.png', gray_img)
+    _, thresh_img = cv2.threshold(gray_img, 100, 255, cv2.THRESH_BINARY)
+    cnts, hierarchy = cv2.findContours(thresh_img, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+    hierarchy = np.squeeze(hierarchy)
+    for i, cnt in enumerate(cnts):
+        if hierarchy[i][2] == -1 and hierarchy[i][3] != -1:
+            parent_idx = hierarchy[i][3]
+            parent_cnt = cnts[parent_idx]
+            parent_area = cv2.contourArea(parent_cnt)
+            child_area = cv2.contourArea(cnt)
+            area_rate = child_area / parent_area
+            print('area rate', child_area / parent_area)
+            # if is_corner(gray_img, parent_cnt, cnt):
+            if 0.1 < area_rate < 0.3:
+                return True
+    return False
+
+
+def check_red_flag(img, red_points):
+    red_mask = np.zeros(img.shape[:2], np.uint8)
+    cv2.drawContours(red_mask, [red_points], -1, 255, -1)
+    red_img = cv2.bitwise_and(img, img, mask=red_mask)
+    red_pixel_count = cv2.countNonZero(cv2.cvtColor(red_img, cv2.COLOR_BGR2GRAY))
+    r_value = np.sum(red_img[:, :, 2]) / red_pixel_count
+    b_value = np.sum(red_img[:, :, 0]) / red_pixel_count
+    g_value = np.sum(red_img[:, :, 1]) / red_pixel_count
+    cv2.imwrite('red.png', red_img)
+
+    if r_value - b_value > 50 and r_value - g_value > 50 and r_value > 100:
+        print('yes, we find red flag')
+        return True
+    else:
+        return False
+
+
+def find_code_area(img, white_box, outer_box, code_box):
+    edge1 = np.linalg.norm(outer_box[0, :] - outer_box[1, :])
+    edge2 = np.linalg.norm(outer_box[1, :] - outer_box[2, :])
+    if edge1 > edge2:
+        code_points = np.array([outer_box[1, :], outer_box[2, :], code_box[2, :], code_box[1, :]]).astype(np.uint)
+        red_points = np.array([white_box[0, :], white_box[3, :], outer_box[3, :], outer_box[0, :]]).astype(np.uint)
+    else:
+        code_points = np.array([outer_box[0, :], outer_box[1, :], code_box[1, :], code_box[0, :]]).astype(np.uint)
+        red_points = np.array([white_box[2, :], white_box[3, :], outer_box[3, :], outer_box[2, :]]).astype(np.uint)
+    if check_red_flag(img, red_points):
+        print('we got red points')
+        return code_points
 
 
 def crop_possible_region(ctl_box, img):
@@ -730,28 +771,28 @@ def crop_possible_region(ctl_box, img):
     w, h = ctl_box[1]
     ave_wh = np.mean(ctl_box[1])
     angle = ctl_box[2]
-    gap = ave_wh / 6
-    w, h = w + gap * 2, h + gap * 2
-    # code_inner = ctl_box[1] + gap
-    # new_rect = (ctl_point, (w + gap * 2, h), angle)
+    gap = ave_wh / 8
+
     white_box = cv2.boxPoints((ctl_point, (w, h), angle))
     outer_box = cv2.boxPoints((ctl_point, (w + gap * 2, h), angle))
-    code_box = cv2.boxPoints((ctl_point, (w + gap * 6, h), angle))
+    code_box = cv2.boxPoints((ctl_point, (w + gap * 8, h), angle))
 
     edge1 = np.linalg.norm(outer_box[0, :] - outer_box[1, :])
     edge2 = np.linalg.norm(outer_box[1, :] - outer_box[2, :])
     if edge1 > edge2:
-        gap_point1 = np.array([white_box[1, :], white_box[2, :], outer_box[2, :], outer_box[1, :]]).astype(np.uint)
-        code_point = np.array([outer_box[1, :], outer_box[2, :], code_box[2, :], code_box[1, :]]).astype(np.uint)
+        code_points = np.array([outer_box[1, :], outer_box[2, :], code_box[2, :], code_box[1, :]]).astype(np.uint)
+        red_points = np.array([white_box[0, :], white_box[3, :], outer_box[3, :], outer_box[0, :]]).astype(np.uint)
     else:
-        gap_point1 = np.array([white_box[0, :], white_box[1, :], outer_box[1, :], outer_box[0, :]]).astype(np.uint)
-        code_point = np.array([outer_box[0, :], outer_box[1, :], code_box[1, :], code_box[0, :]]).astype(np.uint)
-
-    cv2.drawContours(img, [gap_point1], -1, (255, 0, 0), 1)
-    cv2.drawContours(img, [code_point], -1, (255, 255, 0), 1)
+        code_points = np.array([outer_box[0, :], outer_box[1, :], code_box[1, :], code_box[0, :]]).astype(np.uint)
+        red_points = np.array([white_box[2, :], white_box[3, :], outer_box[3, :], outer_box[2, :]]).astype(np.uint)
+    if check_red_flag(img, red_points):
+        print('we got red points')
+    # cv2.drawContours(img, [gap_point1], -1, (255, 0, 0), 1)
+    cv2.drawContours(img, [code_points], -1, (255, 255, 0), 1)
+    cv2.drawContours(img, [red_points], -1, (255, 255, 0), 1)
     cv2.imwrite('possible.png', img)
 
-    code_rect = cv2.minAreaRect(code_point)
+    code_rect = cv2.minAreaRect(code_points)
 
 
     print(white_box)
@@ -774,7 +815,7 @@ def contour_find(img_file):
     _, thresh_img = cv2.threshold(gray_img, 150, 255, cv2.THRESH_BINARY)
     # thresh_img = cv2.adaptiveThreshold(gray_img, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, 33, 3)
     # 自适应阈值二值化速度太慢了，无法满足要求
-    cv2.imwrite('thresh_img.png', thresh_img)
+    # cv2.imwrite('thresh_img.png', thresh_img)
     #
     contours, hierarchy = cv2.findContours(thresh_img, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
     print(time.time() - time0)
@@ -783,28 +824,50 @@ def contour_find(img_file):
     ic, parent_idx = 0, -1
     rects = []
     cnts = []
-    cv2.drawContours(img, contours, -1, (255, 255, 0), 1)
-    cv2.imwrite('contours0.png', img)
+    # cv2.drawContours(img, contours, -1, (255, 255, 0), 1)
+    # cv2.imwrite('contours0.png', img)
     for i in range(len(contours)):
-        if hierarchy[i][2] == -1 and hierarchy[i][3] != -1:
-            parent_idx = hierarchy[i][3]
+        if hierarchy[i][2] != -1 and ic == 0:
+            parent_idx = i
+            ic += 1
+        elif hierarchy[i][2] != -1:
+            ic += 1
+        elif hierarchy[i][2] == -1:
+            ic, parent_idx = 0, -1
+
+        if ic >= 2:
+            # parent_idx = hierarchy[i][3]
             parent_cnt = contours[parent_idx]
             child_cnt = contours[i]
+            ic, parent_idx = 0, -1
 
-            if not contour_chk(parent_cnt, child_cnt, gray_img):
+            if not contour_chk(parent_cnt, gray_img):
                 continue
-            # contour_chk(parent_cnt, child_cnt, gray_img)
+            # contour_chk(parent_cnt, gray_img)
             rect = cv2.minAreaRect(parent_cnt)
 
             # print('contour likely:', d1)
             rects.append(rect)
             cnts.append(parent_cnt)
+        # if hierarchy[i][2] == -1 and hierarchy[i][3] != -1:
+        #     parent_idx = hierarchy[i][3]
+        #     parent_cnt = contours[parent_idx]
+        #     child_cnt = contours[i]
+        #
+        #     if not contour_chk(parent_cnt, child_cnt, gray_img):
+        #         continue
+        #     # contour_chk(parent_cnt, child_cnt, gray_img)
+        #     rect = cv2.minAreaRect(parent_cnt)
+        #
+        #     # print('contour likely:', d1)
+        #     rects.append(rect)
+        #     cnts.append(parent_cnt)
     print(time.time() - time0)
     if len(rects) != 1:
         # todo
         print("ctl point count:", len(rects))
         print("can't find any ctl point or more than one ctl point")
-        return
+        # return
     # time1 = time.time()
     print(time.time() - time0)
     pts = cv2.boxPoints(rects[0]).astype(np.int)
@@ -812,6 +875,7 @@ def contour_find(img_file):
     img = cv2.imread(img_file)
     cv2.drawContours(img, cnts, -1, (0, 255, 0), 1)
     cv2.imwrite(os.path.split(img_file)[-1], img)
+    img = cv2.imread(img_file)
 
     crop_possible_region(rects[0], img)
 
