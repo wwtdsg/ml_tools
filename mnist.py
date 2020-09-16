@@ -16,6 +16,7 @@ import random
 import tqdm
 import glob
 import time
+import math
 
 img_mean, img_std = [0.485, 0.456, 0.406], [0.229, 0.224, 0.225]
 
@@ -687,7 +688,7 @@ def get_roi_img(cnt, gray_img):
 
 
 def is_corner(gray_img, parent_cnt, child_cnt):
-            # if rect[2] <
+    # if rect[2] <
 
     mask_out = np.zeros(gray_img.shape[:2], np.uint8)
     cv2.drawContours(mask_out, [parent_cnt], -1, 255, -1)
@@ -743,7 +744,7 @@ def check_red_flag(img, red_points):
     r_value = np.sum(red_img[:, :, 2]) / red_pixel_count
     b_value = np.sum(red_img[:, :, 0]) / red_pixel_count
     g_value = np.sum(red_img[:, :, 1]) / red_pixel_count
-    cv2.imwrite('red.png', red_img)
+    # cv2.imwrite('red.png', red_img)
 
     if r_value - b_value > 50 and r_value - g_value > 50 and r_value > 100:
         print('yes, we find red flag')
@@ -756,14 +757,44 @@ def find_code_area(img, white_box, outer_box, code_box):
     edge1 = np.linalg.norm(outer_box[0, :] - outer_box[1, :])
     edge2 = np.linalg.norm(outer_box[1, :] - outer_box[2, :])
     if edge1 > edge2:
-        code_points = np.array([outer_box[1, :], outer_box[2, :], code_box[2, :], code_box[1, :]]).astype(np.uint)
         red_points = np.array([white_box[0, :], white_box[3, :], outer_box[3, :], outer_box[0, :]]).astype(np.uint)
+        if check_red_flag(img, red_points):
+            code_points = np.array([outer_box[1, :], outer_box[2, :], code_box[2, :], code_box[1, :]]).astype(np.uint)
+            return code_points, red_points
+        red_points = np.array([white_box[1, :], white_box[2, :], outer_box[2, :], outer_box[1, :]]).astype(np.uint)
+        if check_red_flag(img, red_points):
+            code_points = np.array([outer_box[0, :], outer_box[3, :], code_box[3, :], code_box[0, :]]).astype(np.uint)
+            return code_points, red_points
     else:
-        code_points = np.array([outer_box[0, :], outer_box[1, :], code_box[1, :], code_box[0, :]]).astype(np.uint)
         red_points = np.array([white_box[2, :], white_box[3, :], outer_box[3, :], outer_box[2, :]]).astype(np.uint)
-    if check_red_flag(img, red_points):
-        print('we got red points')
-        return code_points
+        if check_red_flag(img, red_points):
+            code_points = np.array([outer_box[0, :], outer_box[1, :], code_box[1, :], code_box[0, :]]).astype(np.uint)
+            return code_points, red_points
+        red_points = np.array([white_box[0, :], white_box[1, :], outer_box[1, :], outer_box[0, :]]).astype(np.uint)
+        if check_red_flag(img, red_points):
+            code_points = np.array([outer_box[2, :], outer_box[3, :], code_box[3, :], code_box[2, :]]).astype(np.uint)
+            return code_points, red_points
+        # return code_points, red_points
+    return None, red_points
+
+
+def cvt_img_2_num(img):
+    h, w = img.shape[:2]
+    pixel_count = w * h
+    # pixel_value = np.sum(img, axis=2)
+    r_value = np.sum(img[:, :, 2]) / pixel_count
+    b_value = np.sum(img[:, :, 0]) / pixel_count
+    g_value = np.sum(img[:, :, 1]) / pixel_count
+    # 黑0，白1，红2，绿3
+    if g_value - b_value > 50 and g_value - r_value > 50 and g_value > 100:
+        return 3
+    if r_value - b_value > 50 and r_value - g_value > 50 and r_value > 100:
+        return 2
+    if r_value > 150 and g_value > 150 and b_value > 150:
+        return 1
+    if r_value < 50 and g_value < 50 and b_value < 50:
+        return 0
+    return 0
 
 
 def crop_possible_region(ctl_box, img):
@@ -774,26 +805,64 @@ def crop_possible_region(ctl_box, img):
     gap = ave_wh / 8
 
     white_box = cv2.boxPoints((ctl_point, (w, h), angle))
-    outer_box = cv2.boxPoints((ctl_point, (w + gap * 2, h), angle))
-    code_box = cv2.boxPoints((ctl_point, (w + gap * 8, h), angle))
 
-    edge1 = np.linalg.norm(outer_box[0, :] - outer_box[1, :])
-    edge2 = np.linalg.norm(outer_box[1, :] - outer_box[2, :])
-    if edge1 > edge2:
-        code_points = np.array([outer_box[1, :], outer_box[2, :], code_box[2, :], code_box[1, :]]).astype(np.uint)
-        red_points = np.array([white_box[0, :], white_box[3, :], outer_box[3, :], outer_box[0, :]]).astype(np.uint)
+    # 宽度增加
+    outer_box = cv2.boxPoints((ctl_point, (w + gap * 2, h), angle))
+    code_box = cv2.boxPoints((ctl_point, (w + gap * 10, h), angle))
+
+    code_points, red_points = find_code_area(img, white_box, outer_box, code_box)
+    if code_points is None:
+        # 高度增加
+        outer_box = cv2.boxPoints((ctl_point, (w, h + gap * 2), angle))
+        code_box = cv2.boxPoints((ctl_point, (w, h + gap * 8), angle))
+        code_points, red_points = find_code_area(img, white_box, outer_box, code_box)
+        if code_points is None:
+            print("Can't find red flag area")
+            return False
+    code_rect = cv2.minAreaRect(code_points)
+    red_center = [np.mean(red_points[:, 0]), np.mean(red_points[:, 1])]
+    code_center = [np.mean(code_points[:, 0]), np.mean(code_points[:, 1])]
+    slope_rate = (code_center[1] - red_center[1]) / (code_center[0] - red_center[0])
+    if red_center[1] < code_center[1]:
+        angle = math.atan(slope_rate) / math.pi * 180
+        angle = angle - 90 if angle >= 0 else 90 + angle
+    elif red_center[1] > code_center[1]:
+        angle = math.atan(slope_rate) / math.pi * 180
+        angle = -(90 + angle) if angle > 0 else -(270 + angle)
     else:
-        code_points = np.array([outer_box[0, :], outer_box[1, :], code_box[1, :], code_box[0, :]]).astype(np.uint)
-        red_points = np.array([white_box[2, :], white_box[3, :], outer_box[3, :], outer_box[2, :]]).astype(np.uint)
-    if check_red_flag(img, red_points):
-        print('we got red points')
-    # cv2.drawContours(img, [gap_point1], -1, (255, 0, 0), 1)
+        angle = 0
+    center_cord = tuple(map(int, code_center))
+    w, h = int(max(code_rect[1])), int(min(code_rect[1]))
+    M = cv2.getRotationMatrix2D(center_cord, angle, 1.0)
+    # rotate_img = cv2.warpAffine(img, M, tuple(map(int, code_rect[1])), flags=cv2.WARP_INVERSE_MAP,
+    rotate_img = cv2.warpAffine(img, M, (img.shape[1], img.shape[0]))
+    warped_img = rotate_img[center_cord[1] - h // 2 + 2: center_cord[1] + h // 2 - 1,
+                            center_cord[0] - w // 2 + 2: center_cord[0] + w // 2 + 1, :]
+    cv2.imwrite('warped_code_img.png', warped_img)
+    code_width = warped_img.shape[1] / 5
+
+    x5 = warped_img[:, :int(code_width), :]
+    x4 = warped_img[:, int(code_width):int(code_width * 2), :]
+    x3 = warped_img[:, int(code_width * 2):int(code_width * 3), :]
+    x2 = warped_img[:, int(code_width * 3):int(code_width * 4), :]
+    x1 = warped_img[:, int(code_width * 4):int(code_width * 5), :]
+
+    x5 = cvt_img_2_num(x5)
+    x4 = cvt_img_2_num(x4)
+    x3 = cvt_img_2_num(x3)
+    x2 = cvt_img_2_num(x2)
+    x1 = cvt_img_2_num(x1)
+
+    ctl_code = x5 * pow(4, 4) + x4 * pow(4, 3) + x3 * pow(4, 2) + x2 * pow(4, 1) + x1
+
     cv2.drawContours(img, [code_points], -1, (255, 255, 0), 1)
     cv2.drawContours(img, [red_points], -1, (255, 255, 0), 1)
+    cv2.circle(img, (round(ctl_point[0]), round(ctl_point[1])), 1, (0, 0, 255))
+    cv2.putText(img, str(ctl_code), (int(ctl_point[0]) + 20, int(ctl_point[1])), cv2.FONT_HERSHEY_COMPLEX, 0.5,
+                (0, 0, 255), 1)
     cv2.imwrite('possible.png', img)
 
     code_rect = cv2.minAreaRect(code_points)
-
 
     print(white_box)
     print(outer_box)
@@ -884,7 +953,8 @@ def contour_find(img_file):
 
 if __name__ == '__main__':
     # hausdorff_sd = cv2.createHausdorffDistanceExtractor()
-    test_img = r'/media/chen/wt/tmp/control_point/0929-2_D_0826_code_a3.jpg'
+    # test_img = r'/media/chen/wt/tmp/control_point/0929-2_D_0305_code_a3.jpg'
+    test_img = r'/media/chen/wt/tmp/control_point/0929-2_D_0826_code_a3_v2.jpg'
     kh_img_file_path = '/media/chen/wt/tmp/kk/kh.png'
     kgt_img_file_path = '/media/chen/wt/tmp/kk/sdyf_kh.png'
     # test_img = r'/media/chen/wt/tmp/control_point/0929-2_D_0856_2.jpg'
