@@ -17,6 +17,7 @@ import tqdm
 import glob
 import time
 import math
+from collections import Counter
 
 img_mean, img_std = [0.485, 0.456, 0.406], [0.229, 0.224, 0.225]
 
@@ -720,7 +721,7 @@ def contour_chk(contour, gray_img):
     gray_img = get_roi_img(contour, gray_img)
     # cv2.imwrite('roi_img.png', gray_img)
     _, thresh_img = cv2.threshold(gray_img, 100, 255, cv2.THRESH_BINARY)
-    cnts, hierarchy = cv2.findContours(thresh_img, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+    _, cnts, hierarchy = cv2.findContours(thresh_img, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
     hierarchy = np.squeeze(hierarchy)
     for i, cnt in enumerate(cnts):
         if hierarchy[i][2] == -1 and hierarchy[i][3] != -1:
@@ -778,13 +779,10 @@ def find_code_area(img, white_box, outer_box, code_box):
     return None, red_points
 
 
-def cvt_img_2_num(img):
-    h, w = img.shape[:2]
-    pixel_count = w * h
-    # pixel_value = np.sum(img, axis=2)
-    r_value = np.sum(img[:, :, 2]) / pixel_count
-    b_value = np.sum(img[:, :, 0]) / pixel_count
-    g_value = np.sum(img[:, :, 1]) / pixel_count
+def value_2_num(value):
+    r_value = value[2]
+    b_value = value[0]
+    g_value = value[1]
     # 黑0，白1，红2，绿3
     if g_value - b_value > 50 and g_value - r_value > 50 and g_value > 100 and b_value < 140 and r_value < 140:
         return 3
@@ -794,7 +792,22 @@ def cvt_img_2_num(img):
         return 1
     if r_value < 50 and g_value < 50 and b_value < 50:
         return 0
+    ave_value = np.mean(value)
+    if ave_value > 140:
+        return 1
     return 0
+
+
+def cvt_img_2_num(img):
+    if debug:
+        cv2.imwrite('code_num.jpg', img)
+    arr_mean = np.mean(img, axis=0)
+    num_count = [0] * 4
+    # 黑0，白1，红2，绿3
+    for value in arr_mean:
+        num = value_2_num(value)
+        num_count[num] += 1
+    return np.argmax(num_count)
 
 
 def crop_possible_region(ctl_box, img):
@@ -808,7 +821,7 @@ def crop_possible_region(ctl_box, img):
 
     # 宽度增加
     outer_box = cv2.boxPoints((ctl_point, (w + gap * 2, h), angle))
-    code_box = cv2.boxPoints((ctl_point, (w + gap * 10, h), angle))
+    code_box = cv2.boxPoints((ctl_point, (w + gap * 9, h), angle))
 
     code_points, red_points = find_code_area(img, white_box, outer_box, code_box)
     if code_points is None:
@@ -819,6 +832,9 @@ def crop_possible_region(ctl_box, img):
         if code_points is None:
             print("Can't find red flag area")
             return False
+    # if debug:
+    #     test_img = np.copy(img)
+    #     cv2.drawContours(test_img, [code_points], )
     code_rect = cv2.minAreaRect(code_points)
     red_center = [np.mean(red_points[:, 0]), np.mean(red_points[:, 1])]
     code_center = [np.mean(code_points[:, 0]), np.mean(code_points[:, 1])]
@@ -835,14 +851,16 @@ def crop_possible_region(ctl_box, img):
         else:
             angle = 90 if code_center[0] < red_center[0] else -90
     # center_cord = tuple(map(round, code_center))
-    w, h = round(max(code_rect[1])), round(min(code_rect[1]))
+    w, h = max(code_rect[1]), min(code_rect[1])
     M = cv2.getRotationMatrix2D(tuple(code_center), angle, 1.0)
     # rotate_img = cv2.warpAffine(img, M, tuple(map(int, code_rect[1])), flags=cv2.WARP_INVERSE_MAP,
     rotate_img = cv2.warpAffine(img, M, (img.shape[1], img.shape[0]))
-    cv2.imwrite('rotate_img.png', rotate_img)
+    if debug:
+        cv2.imwrite('rotate_img.png', rotate_img)
     warped_img = rotate_img[int(round(code_center[1] - h / 2 + 2)): int(round(code_center[1] + h / 2 - 1)),
-                 int(round(code_center[0] - w / 2)): int(round(code_center[0] + w / 2)), :]
-    cv2.imwrite('warped_code_img.png', warped_img)
+                            int(round(code_center[0] - w / 2)): int(round(code_center[0] + w / 2)), :]
+    if debug:
+        cv2.imwrite('warped_code_img.png', warped_img)
     code_width = warped_img.shape[1] / 5
 
     x5 = warped_img[:, :round(code_width), :]
@@ -861,6 +879,7 @@ def crop_possible_region(ctl_box, img):
     # print(time.time())
     cv2.drawContours(img, [code_points], -1, (255, 255, 0), 1)
     cv2.drawContours(img, [red_points], -1, (255, 255, 0), 1)
+    cv2.drawContours(img, [white_box.astype(np.int)], -1, (0, 255, 0), 1)
     cv2.circle(img, (round(ctl_point[0]), round(ctl_point[1])), 1, (0, 0, 255))
     cv2.putText(img, str(ctl_code), (int(ctl_point[0]) + 20, int(ctl_point[1])), cv2.FONT_HERSHEY_COMPLEX, 0.5,
                 (0, 0, 255), 1)
@@ -889,20 +908,22 @@ def contour_find(img_file):
     # cv2.imwrite('norm_img.jpg', norm_img)
     time1 = time.time()
     _, thresh_img = cv2.threshold(gray_img, 130, 255, cv2.THRESH_BINARY)
-    # cv2.imwrite('thresh_img.png', thresh_img)
+    if debug:
+        cv2.imwrite('thresh_img.png', thresh_img)
 
     # thresh_img = cv2.adaptiveThreshold(gray_img, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, 33, 3)
     # 自适应阈值二值化速度太慢了，无法满足要求
     #
-    contours, hierarchy = cv2.findContours(thresh_img, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+    _, contours, hierarchy = cv2.findContours(thresh_img, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
     print(time.time() - time1)
     # for cnt in contours:
     hierarchy = np.squeeze(hierarchy)
     ic, parent_idx = 0, -1
     rects = []
     cnts = []
-    # cv2.drawContours(img, contours, -1, (255, 255, 0), 1)
-    # cv2.imwrite('contours0.png', img)
+    if debug:
+        cv2.drawContours(img, contours, -1, (255, 255, 0), 1)
+        cv2.imwrite('contours0.png', img)
     for i in range(len(contours)):
         if hierarchy[i][2] != -1 and ic == 0:
             parent_idx = i
@@ -954,10 +975,11 @@ if __name__ == '__main__':
     kh_img_file_path = '/media/chen/wt/tmp/kk/kh.png'
     kgt_img_file_path = '/media/chen/wt/tmp/kk/sdyf_kh.png'
     # test_img = r'/media/chen/wt/tmp/control_point/0929-2_D_0856_2.jpg'
-    test_dir = r'/media/chen/wt/tmp/control_point/test_img/'
+    test_dir = r'/media/chen3/wt/tmp/ctl_pts_imgs/'
     test_imgs = glob.glob(test_dir + '*.jpg')
+    debug = False
     for img in test_imgs:
-        img = r'/media/chen/wt/tmp/control_point/test_img/0929-2_D_0826.jpg'
+        # img = r'/media/chen3/wt/tmp/ctl_pts_imgs/0929-2_D_0842.jpg'
         contour_find(img)
     # locate_ctl_point(test_img)
     # kgt_area_detect(test_img)
