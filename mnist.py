@@ -643,7 +643,7 @@ def parent_contour_chk(cnt):
     rect_perimeter = 2 * (sum(rect[1]))
     hull_perimeter = cv2.arcLength(cv2.convexHull(cnt), True)
 
-    if abs(rect[1][0] - rect[1][1]) > 4 \
+    if abs(rect[1][0] - rect[1][1]) > 6 \
             or abs(rect_perimeter - perimeter) > 5 \
             or abs(perimeter - hull_perimeter) > 6:
         return False
@@ -714,14 +714,15 @@ def is_corner(gray_img, parent_cnt, child_cnt):
     return True
 
 
-def contour_chk(contour, gray_img):
+def contour_chk(contour, thresh_img):
     if not parent_contour_chk(contour):
         return False
     # gray_img, parent_cnt, (x1, y1) = get_roi_img(contour, gray_img)
-    gray_img = get_roi_img(contour, gray_img)
-    # cv2.imwrite('roi_img.png', gray_img)
-    _, thresh_img = cv2.threshold(gray_img, 100, 255, cv2.THRESH_BINARY)
-    _, cnts, hierarchy = cv2.findContours(thresh_img, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+    thresh_img = get_roi_img(contour, thresh_img)
+    if debug:
+        cv2.imwrite('roi_img.png', thresh_img)
+    # _, thresh_img = cv2.threshold(thresh_img, 100, 255, cv2.THRESH_BINARY)
+    cnts, hierarchy = cv2.findContours(thresh_img, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
     hierarchy = np.squeeze(hierarchy)
     for i, cnt in enumerate(cnts):
         if hierarchy[i][2] == -1 and hierarchy[i][3] != -1:
@@ -739,13 +740,14 @@ def contour_chk(contour, gray_img):
 
 def check_red_flag(img, red_points):
     red_mask = np.zeros(img.shape[:2], np.uint8)
-    cv2.drawContours(red_mask, [red_points], -1, 255, -1)
+    cv2.drawContours(red_mask, [red_points.astype(np.int32)], -1, 255, 1)
     red_img = cv2.bitwise_and(img, img, mask=red_mask)
     red_pixel_count = cv2.countNonZero(cv2.cvtColor(red_img, cv2.COLOR_BGR2GRAY))
     r_value = np.sum(red_img[:, :, 2]) / red_pixel_count
     b_value = np.sum(red_img[:, :, 0]) / red_pixel_count
     g_value = np.sum(red_img[:, :, 1]) / red_pixel_count
-    # cv2.imwrite('red.png', red_img)
+    if debug:
+        cv2.imwrite('red.png', red_img)
 
     if r_value - b_value > 30 and r_value - g_value > 30 and r_value > 100:
         print('yes, we find red flag')
@@ -758,22 +760,22 @@ def find_code_area(img, white_box, outer_box, code_box):
     edge1 = np.linalg.norm(outer_box[0, :] - outer_box[1, :])
     edge2 = np.linalg.norm(outer_box[1, :] - outer_box[2, :])
     if edge1 > edge2:
-        red_points = np.round([white_box[0, :], white_box[3, :], outer_box[3, :], outer_box[0, :]]).astype(np.uint)
+        red_points = np.round([white_box[0, :], white_box[3, :], outer_box[3, :], outer_box[0, :]]).astype(np.int)
         if check_red_flag(img, red_points):
-            code_points = np.round([outer_box[1, :], outer_box[2, :], code_box[2, :], code_box[1, :]]).astype(np.uint)
+            code_points = np.round([outer_box[1, :], outer_box[2, :], code_box[2, :], code_box[1, :]]).astype(np.int)
             return code_points, red_points
-        red_points = np.round([white_box[1, :], white_box[2, :], outer_box[2, :], outer_box[1, :]]).astype(np.uint)
+        red_points = np.round([white_box[1, :], white_box[2, :], outer_box[2, :], outer_box[1, :]]).astype(np.int)
         if check_red_flag(img, red_points):
-            code_points = np.round([outer_box[0, :], outer_box[3, :], code_box[3, :], code_box[0, :]]).astype(np.uint)
+            code_points = np.round([outer_box[0, :], outer_box[3, :], code_box[3, :], code_box[0, :]]).astype(np.int)
             return code_points, red_points
     else:
-        red_points = np.round([white_box[2, :], white_box[3, :], outer_box[3, :], outer_box[2, :]]).astype(np.uint)
+        red_points = np.round([white_box[2, :], white_box[3, :], outer_box[3, :], outer_box[2, :]]).astype(np.int)
         if check_red_flag(img, red_points):
-            code_points = np.round([outer_box[0, :], outer_box[1, :], code_box[1, :], code_box[0, :]]).astype(np.uint)
+            code_points = np.round([outer_box[0, :], outer_box[1, :], code_box[1, :], code_box[0, :]]).astype(np.int)
             return code_points, red_points
-        red_points = np.round([white_box[0, :], white_box[1, :], outer_box[1, :], outer_box[0, :]]).astype(np.uint)
+        red_points = np.round([white_box[0, :], white_box[1, :], outer_box[1, :], outer_box[0, :]]).astype(np.int)
         if check_red_flag(img, red_points):
-            code_points = np.round([outer_box[2, :], outer_box[3, :], code_box[3, :], code_box[2, :]]).astype(np.uint)
+            code_points = np.round([outer_box[2, :], outer_box[3, :], code_box[3, :], code_box[2, :]]).astype(np.int)
             return code_points, red_points
         # return code_points, red_points
     return None, red_points
@@ -831,7 +833,7 @@ def crop_possible_region(ctl_box, img):
         code_points, red_points = find_code_area(img, white_box, outer_box, code_box)
         if code_points is None:
             print("Can't find red flag area")
-            return False
+            return img
     # if debug:
     #     test_img = np.copy(img)
     #     cv2.drawContours(test_img, [code_points], )
@@ -907,14 +909,14 @@ def contour_find(img_file):
     # cv2.normalize(gray_img, norm_img, 0, 128, cv2.NORM_MINMAX, cv2.CV_8U)
     # cv2.imwrite('norm_img.jpg', norm_img)
     time1 = time.time()
-    _, thresh_img = cv2.threshold(gray_img, 130, 255, cv2.THRESH_BINARY)
+    _, thresh_img = cv2.threshold(gray_img, 180, 255, cv2.THRESH_BINARY)
     if debug:
         cv2.imwrite('thresh_img.png', thresh_img)
 
     # thresh_img = cv2.adaptiveThreshold(gray_img, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, 33, 3)
     # 自适应阈值二值化速度太慢了，无法满足要求
     #
-    _, contours, hierarchy = cv2.findContours(thresh_img, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+    contours, hierarchy = cv2.findContours(thresh_img, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
     print(time.time() - time1)
     # for cnt in contours:
     hierarchy = np.squeeze(hierarchy)
@@ -939,7 +941,7 @@ def contour_find(img_file):
             # child_cnt = contours[i]
             ic, parent_idx = 0, -1
 
-            if not contour_chk(parent_cnt, gray_img):
+            if not contour_chk(parent_cnt, thresh_img):
                 continue
             # contour_chk(parent_cnt, gray_img)
             rect = cv2.minAreaRect(parent_cnt)
@@ -975,11 +977,11 @@ if __name__ == '__main__':
     kh_img_file_path = '/media/chen/wt/tmp/kk/kh.png'
     kgt_img_file_path = '/media/chen/wt/tmp/kk/sdyf_kh.png'
     # test_img = r'/media/chen/wt/tmp/control_point/0929-2_D_0856_2.jpg'
-    test_dir = r'/media/chen3/wt/tmp/ctl_pts_imgs/'
+    test_dir = 'E:\\wt\\ctl_point\\test_images\\'
     test_imgs = glob.glob(test_dir + '*.jpg')
-    debug = False
+    debug = True
     for img in test_imgs:
-        # img = r'/media/chen3/wt/tmp/ctl_pts_imgs/0929-2_D_0842.jpg'
+        img = r'E:\\wt\\ctl_point\\test_images\\test-B-0366.JPG'
         contour_find(img)
     # locate_ctl_point(test_img)
     # kgt_area_detect(test_img)
