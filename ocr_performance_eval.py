@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 import matplotlib
 import datetime
 import base64
-from img_process import decode_image_with_base64, visualize, img2base64
+from util.img_process import decode_image_with_base64, visualize, img2base64
 import cv2
 import PIL.ImageFont as ImageFont
 from PIL import Image

@@ -360,6 +360,41 @@ def json_2_mask_img(json_file, save_dir):
     cv2.imwrite(save_file, mask)
 
 
+def correct_img(src_image):
+    """
+    倾斜校正.
+    :param src_image: 待校正图片
+    :return:
+    """
+    if src_image.ndim == 3:
+        gray_image = cv2.cvtColor(src_image, cv2.COLOR_BGR2GRAY)
+    else:
+        gray_image = src_image
+
+    _, bin_image = cv2.threshold(gray_image, 127, 255, cv2.THRESH_BINARY_INV)
+
+    thetas = np.linspace(-2, 2., 50, endpoint=False)
+    entropys = []
+    for angle in thetas:
+        rotated_image = rotate_bound(bin_image, angle)
+
+        sum_row = np.sum(rotated_image, axis=1)
+        if not float(np.sum(sum_row)):
+            continue
+        sum_row = sum_row / float(np.sum(sum_row))
+        entropys.append(entropy(sum_row))
+
+    if not entropys:
+        return src_image, 0
+    else:
+        angle = thetas[np.argmin(entropys)]
+
+    # (-00, -0.2)U(0.2, +00)范围内旋转, [0, 0.2]不旋转
+    if abs(angle) > 0.2:
+        ret_image = rotate_bound(src_image, angle, (255, 255, 255))
+        return ret_image, angle
+
+    return src_image, angle
 
 if __name__ == '__main__':
     img_path = '/media/chen/wt/data/ocr_data/single_img_test/1/5d9f27d85c50d2198641cc65_1.png'

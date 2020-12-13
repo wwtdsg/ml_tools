@@ -9,3 +9,5 @@ fonts/
 __pycache__/
 lm_corpus/
 .idea/
+data/
+*.zip
