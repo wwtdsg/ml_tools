@@ -161,7 +161,7 @@ def get_edge(data, blur=False):
 
 
 def get_roi_img(cnt, gray_img):
-    # new_cnt = np.zeros_like(cnt)
+    new_cnt = np.zeros_like(cnt)
     h, w = gray_img.shape[:2]
     rect = cv2.boundingRect(cnt)
     ext = 10
@@ -170,9 +170,9 @@ def get_roi_img(cnt, gray_img):
     x2 = x2 if x2 < w else w - 1
     y2 = y2 if y2 < h else h - 1
     roi_img = gray_img[y1: y2, x1: x2]
-    # new_cnt[:, 0, 0] = cnt[:, 0, 0] - x1 + 1
-    # new_cnt[:, 0, 1] = cnt[:, 0, 1] - y1 + 1
-    return roi_img  # , new_cnt, (x1, y1)
+    new_cnt[:, 0, 0] = cnt[:, 0, 0] - x1 + 1
+    new_cnt[:, 0, 1] = cnt[:, 0, 1] - y1 + 1
+    return roi_img, new_cnt, (x1, y1)
 
 
 def is_corner(gray_img, parent_cnt, child_cnt):
@@ -201,18 +201,18 @@ def is_corner(gray_img, parent_cnt, child_cnt):
     return True
 
 
-def contour_chk(contour, gray_img):
+def contour_chk(contour, orig_gray_img):
     if not parent_contour_chk(contour):
-        return False
-    # gray_img, parent_cnt, (x1, y1) = get_roi_img(contour, gray_img)
-    gray_img = get_roi_img(contour, gray_img)
+        return None, False
+    gray_img, parent_cnt, top_left = get_roi_img(contour, orig_gray_img)
+    # gray_img = get_roi_img(contour, gray_img)
     if debug:
         cv2.imwrite('roi_img.png', gray_img)
     # _, thresh_img = cv2.threshold(gray_img, 128, 255, cv2.THRESH_BINARY)
-    thresh_img = cv2.adaptiveThreshold(gray_img, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, 7, -1)
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
+    thresh_img = cv2.adaptiveThreshold(gray_img, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, 11, -1)
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
     # dilated = cv2.m(thresh_img, kernel)
-    # dilated = cv2.morphologyEx(thresh_img, cv2.MORPH_CLOSE, kernel, iterations=1)
+    thresh_img = cv2.morphologyEx(thresh_img, cv2.MORPH_OPEN, kernel, iterations=1)
     if debug:
         cv2.imwrite('roi_thresh_img.png', thresh_img)
         # cv2.imwrite('dilated.png', dilated)
@@ -222,13 +222,24 @@ def contour_chk(contour, gray_img):
         if hierarchy[i][2] == -1 and hierarchy[i][3] != -1:
             parent_idx = hierarchy[i][3]
             parent_cnt = cnts[parent_idx]
+            if hierarchy[parent_idx][3] == -1:
+                continue
+            p_parent_cnt = cnts[hierarchy[parent_idx][3]]
+            p_parent_area = cv2.contourArea(p_parent_cnt)
             parent_area = cv2.contourArea(parent_cnt)
             child_area = cv2.contourArea(cnt)
             area_rate = child_area / parent_area
+            p_area_rate = parent_area / p_parent_area
             print('area rate', child_area / parent_area)
             # if is_corner(gray_img, parent_cnt, cnt):
-            if 0.12 < area_rate < 0.5:
-                return True
+            if 0.12 < area_rate < 0.5 and 0.3 < p_area_rate < 0.6:
+                p_parent_cnt[:, 0, :] += np.array(top_left)
+                parent_cnt[:, 0, :] += np.array(top_left)
+                cnt[:, 0, :] += np.array(top_left)
+                if debug:
+                    cv2.drawContours(orig_gray_img, [p_parent_cnt, parent_cnt, cnt], -1, 0, 1)
+                    cv2.imwrite('parent_cnt.png', orig_gray_img)
+                return p_parent_cnt, True
     thresh_img = cv2.adaptiveThreshold(gray_img, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, 33, 3)
     cnts, hierarchy = cv2.findContours(thresh_img, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
     hierarchy = np.squeeze(hierarchy)
@@ -236,14 +247,25 @@ def contour_chk(contour, gray_img):
         if hierarchy[i][2] == -1 and hierarchy[i][3] != -1:
             parent_idx = hierarchy[i][3]
             parent_cnt = cnts[parent_idx]
+            if hierarchy[parent_idx][3] == -1:
+                continue
+            p_parent_cnt = cnts[hierarchy[parent_idx][3]]
+            p_parent_area = cv2.contourArea(p_parent_cnt)
             parent_area = cv2.contourArea(parent_cnt)
             child_area = cv2.contourArea(cnt)
             area_rate = child_area / parent_area
             print('area rate', child_area / parent_area)
+            p_area_rate = parent_area / p_parent_area
             # if is_corner(gray_img, parent_cnt, cnt):
-            if 0.12 < area_rate < 0.5:
-                return True
-    return False
+            if 0.12 < area_rate < 0.5 and 0.3 < p_area_rate < 0.6:
+                p_parent_cnt[:, 0, :] += np.array(top_left)
+                parent_cnt[:, 0, :] += np.array(top_left)
+                cnt[:, 0, :] += np.array(top_left)
+                if debug:
+                    cv2.drawContours(orig_gray_img, [p_parent_cnt, parent_cnt, cnt], -1, 0, 1)
+                    cv2.imwrite('parent_cnt.png', orig_gray_img)
+                return parent_cnt, True
+    return None, False
 
 
 def check_red_flag(img, red_points):
@@ -264,12 +286,12 @@ def check_red_flag(img, red_points):
         cv2.imwrite('redbox.png', red_box)
 
     red_box = red_box.reshape((-1, 3)).astype(np.int)
-    rb = (red_box[:, 2] - red_box[:, 0]) > 5
+    rb = (red_box[:, 2] - red_box[:, 0]) > 4
     rg = (red_box[:, 2] - red_box[:, 1]) > 15
     r = red_box[:, 2] > 100
     rel = np.sum(np.logical_and(r, np.logical_and(rb, rg)))
     # if r_value - b_value > 20 and r_value - g_value > 20 and r_value > 100:
-    if rel > 6:
+    if rel > red_box.shape[0] // 3:
         print('yes, we find red flag')
         return True
     else:
@@ -495,10 +517,11 @@ def contour_find(orig_img):
         # child_cnt = contours[i]
         ic, parent_idx = 0, -1
 
-        if not contour_chk(parent_cnt, gray_img):
+        chk_cnt, chk_rel = contour_chk(parent_cnt, gray_img)
+        if not chk_rel:
             continue
         # contour_chk(parent_cnt, gray_img)
-        rect = cv2.minAreaRect(parent_cnt)
+        rect = cv2.minAreaRect(chk_cnt)
 
         # print('contour likely:', d1)
         rects.append(rect)
@@ -548,11 +571,11 @@ if __name__ == '__main__':
     # testimg = r'/media/chen/wt/tmp/control_point/0929-2_D_0826_code_a3_v2.jpg'
     # cv2.namedWindow("test", 0)
     # test_img = r'/media/chen/wt/tmp/control_point/0929-2_D_0856_2.jpg'
-    test_dir = '/Users/wangtao/Desktop/work_data/smart3d/ml_tools/data/real/'
+    test_dir = '/Users/wangtao/Desktop/work_data/smart3d/ml_tools/data/0930_err_rel/D/'
     test_imgs = glob.glob(test_dir + '/*.JPG')
     debug = True
     for img_file in test_imgs:
-        img_file = r'/Users/wangtao/Desktop/work_data/smart3d/ml_tools/data/real/test-B-0458.JPG'
+        # img_file = r'/Users/wangtao/Desktop/work_data/smart3d/ml_tools/data/0930_err_rel/D/test-D-0859.JPG'
         print(img_file)
         # img = light_tune(img_file, -0.3)
         # img = contrast_img(cv2.imread(img_file), 1.3, 3)
