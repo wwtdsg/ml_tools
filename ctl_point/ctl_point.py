@@ -293,9 +293,9 @@ def check_red_flag(img, red_points):
     # if r_value - b_value > 20 and r_value - g_value > 20 and r_value > 100:
     if rel > red_box.shape[0] // 3:
         print('yes, we find red flag')
-        return True
+        return True, rel
     else:
-        return False
+        return False, rel
 
 
 def find_code_area(img, white_box, outer_box, code_box):
@@ -303,24 +303,28 @@ def find_code_area(img, white_box, outer_box, code_box):
     edge2 = np.linalg.norm(outer_box[1, :] - outer_box[2, :])
     if edge1 > edge2:
         red_points = np.round([white_box[0, :], white_box[3, :], outer_box[3, :], outer_box[0, :]]).astype(np.int)
-        if check_red_flag(img, red_points):
-            code_points = np.round([outer_box[1, :], outer_box[2, :], code_box[2, :], code_box[1, :]]).astype(np.int)
-            return code_points, red_points
+        flag, red_cound = check_red_flag(img, red_points)
+        code_points = np.round([outer_box[1, :], outer_box[2, :], code_box[2, :], code_box[1, :]]).astype(np.int)
+        rel = [[flag, red_cound, code_points, red_points]]
+
         red_points = np.round([white_box[1, :], white_box[2, :], outer_box[2, :], outer_box[1, :]]).astype(np.int)
-        if check_red_flag(img, red_points):
-            code_points = np.round([outer_box[0, :], outer_box[3, :], code_box[3, :], code_box[0, :]]).astype(np.int)
-            return code_points, red_points
+        flag, red_cound = check_red_flag(img, red_points)
+        code_points = np.round([outer_box[0, :], outer_box[3, :], code_box[3, :], code_box[0, :]]).astype(np.int)
+        rel.append([flag, red_cound, code_points, red_points])
+        return rel
     else:
         red_points = np.round([white_box[2, :], white_box[3, :], outer_box[3, :], outer_box[2, :]]).astype(np.int)
-        if check_red_flag(img, red_points):
-            code_points = np.round([outer_box[0, :], outer_box[1, :], code_box[1, :], code_box[0, :]]).astype(np.int)
-            return code_points, red_points
+        flag, red_cound = check_red_flag(img, red_points)
+        code_points = np.round([outer_box[0, :], outer_box[1, :], code_box[1, :], code_box[0, :]]).astype(np.int)
+        rel = [[flag, red_cound, code_points, red_points]]
+
         red_points = np.round([white_box[0, :], white_box[1, :], outer_box[1, :], outer_box[0, :]]).astype(np.int)
-        if check_red_flag(img, red_points):
-            code_points = np.round([outer_box[2, :], outer_box[3, :], code_box[3, :], code_box[2, :]]).astype(np.int)
-            return code_points, red_points
+        flag, red_cound = check_red_flag(img, red_points)
+        code_points = np.round([outer_box[2, :], outer_box[3, :], code_box[3, :], code_box[2, :]]).astype(np.int)
+        rel.append([flag, red_cound, code_points, red_points])
+        return rel
         # return code_points, red_points
-    return None, red_points
+    return [False, 0, None, None]
 
 
 def value_2_num(value):
@@ -366,20 +370,25 @@ def crop_possible_region(ctl_box, img):
     # 宽度增加
     outer_box = cv2.boxPoints((ctl_point, (w + gap * 3, h), angle))
     code_box = cv2.boxPoints((ctl_point, (w + gap * 9, h), angle))
+    rel1 = find_code_area(img, white_box, outer_box, code_box)
 
-    code_points, red_points = find_code_area(img, white_box, outer_box, code_box)
-    if code_points is None:
-        # 高度增加
-        outer_box = cv2.boxPoints((ctl_point, (w, h + gap * 3), angle))
-        code_box = cv2.boxPoints((ctl_point, (w, h + gap * 9), angle))
-        code_points, red_points = find_code_area(img, white_box, outer_box, code_box)
-        if code_points is None:
-            # print("Can't find red flag area")
-            # cv2.drawContours(img, [code_points], -1, (255, 255, 0), 1)
-            # cv2.drawContours(img, [red_points], -1, (255, 255, 0), 1)
-            cv2.drawContours(img, [white_box.astype(np.int)], -1, (0, 255, 0), 1)
-            cv2.circle(img, (round(ctl_point[0]), round(ctl_point[1])), 1, (0, 0, 255))
-            return img, False
+    # 高度增加
+    outer_box = cv2.boxPoints((ctl_point, (w, h + gap * 3), angle))
+    code_box = cv2.boxPoints((ctl_point, (w, h + gap * 9), angle))
+    rel2 = find_code_area(img, white_box, outer_box, code_box)
+
+    rel = rel1 + rel2
+    pixel_counts = [item[1] for item in rel]
+    max_index = np.argmax(pixel_counts)
+    if not rel[max_index][0]:
+        # print("Can't find red flag area")
+        # cv2.drawContours(img, [code_points], -1, (255, 255, 0), 1)
+        # cv2.drawContours(img, [red_points], -1, (255, 255, 0), 1)
+        cv2.drawContours(img, [white_box.astype(np.int)], -1, (0, 255, 0), 1)
+        cv2.circle(img, (round(ctl_point[0]), round(ctl_point[1])), 1, (0, 0, 255))
+        return img, False
+    else:
+        flag, red_count, code_points, red_points = rel[max_index]
     # if debug:
     #     test_img = np.copy(img)
     #     cv2.drawContours(test_img, [code_points], )
