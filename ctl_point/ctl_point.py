@@ -5,6 +5,7 @@ from scipy import signal
 import math
 import time
 import glob
+import json
 
 
 def morphoy_process(binary_img, kernel_close, kernel_open):
@@ -208,11 +209,11 @@ def contour_chk(contour, orig_gray_img):
     # gray_img = get_roi_img(contour, gray_img)
     if debug:
         cv2.imwrite('roi_img.png', gray_img)
-    # _, thresh_img = cv2.threshold(gray_img, 128, 255, cv2.THRESH_BINARY)
-    thresh_img = cv2.adaptiveThreshold(gray_img, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, 11, -1)
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+    _, thresh_img = cv2.threshold(gray_img, np.max(gray_img) * 0.9, 255, cv2.THRESH_BINARY)
+    # thresh_img = cv2.adaptiveThreshold(gray_img, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, 5, -1)
+    # kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
     # dilated = cv2.m(thresh_img, kernel)
-    thresh_img = cv2.morphologyEx(thresh_img, cv2.MORPH_OPEN, kernel, iterations=1)
+    # thresh_img = cv2.morphologyEx(thresh_img, cv2.MORPH_OPEN, kernel, iterations=1)
     if debug:
         cv2.imwrite('roi_thresh_img.png', thresh_img)
         # cv2.imwrite('dilated.png', dilated)
@@ -232,15 +233,23 @@ def contour_chk(contour, orig_gray_img):
             p_area_rate = parent_area / p_parent_area
             print('area rate', child_area / parent_area)
             # if is_corner(gray_img, parent_cnt, cnt):
-            if 0.12 < area_rate < 0.5 and 0.3 < p_area_rate < 0.6:
+            if 0.05 < area_rate < 0.5 and 0.3 < p_area_rate < 0.8:
                 p_parent_cnt[:, 0, :] += np.array(top_left)
                 parent_cnt[:, 0, :] += np.array(top_left)
                 cnt[:, 0, :] += np.array(top_left)
-                if debug:
-                    cv2.drawContours(orig_gray_img, [p_parent_cnt, parent_cnt, cnt], -1, 0, 1)
-                    cv2.imwrite('parent_cnt.png', orig_gray_img)
+                # if debug:
+                #     cv2.drawContours(orig_gray_img, [p_parent_cnt, parent_cnt, cnt], -1, 0, 1)
+                #     cv2.imwrite('parent_cnt.png', orig_gray_img)
                 return p_parent_cnt, True
-    thresh_img = cv2.adaptiveThreshold(gray_img, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, 33, 3)
+            p_parent_cnt[:, 0, :] += np.array(top_left)
+            parent_cnt[:, 0, :] += np.array(top_left)
+            cnt[:, 0, :] += np.array(top_left)
+            # cv2.drawContours(orig_gray_img, [p_parent_cnt, parent_cnt, cnt], -1, 0, 1)
+            # cv2.imwrite('parent_cnt.png', orig_gray_img)
+    # thresh_img = cv2.adaptiveThreshold(gray_img, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, 33, 3)
+    _, thresh_img = cv2.threshold(gray_img, np.max(gray_img) * 0.7, 255, cv2.THRESH_BINARY)
+    if debug:
+        cv2.imwrite('roi_thresh_img.png', thresh_img)
     cnts, hierarchy = cv2.findContours(thresh_img, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
     hierarchy = np.squeeze(hierarchy)
     for i, cnt in enumerate(cnts):
@@ -256,15 +265,17 @@ def contour_chk(contour, orig_gray_img):
             area_rate = child_area / parent_area
             print('area rate', child_area / parent_area)
             p_area_rate = parent_area / p_parent_area
+
             # if is_corner(gray_img, parent_cnt, cnt):
-            if 0.12 < area_rate < 0.5 and 0.3 < p_area_rate < 0.6:
+            if 0.05 < area_rate < 0.5 and 0.3 < p_area_rate < 0.6:
                 p_parent_cnt[:, 0, :] += np.array(top_left)
                 parent_cnt[:, 0, :] += np.array(top_left)
                 cnt[:, 0, :] += np.array(top_left)
                 if debug:
-                    cv2.drawContours(orig_gray_img, [p_parent_cnt, parent_cnt, cnt], -1, 0, 1)
+                    cv2.drawContours(orig_gray_img, [p_parent_cnt], -1, 0, 1)
                     cv2.imwrite('parent_cnt.png', orig_gray_img)
-                return parent_cnt, True
+                return p_parent_cnt, True
+
     return None, False
 
 
@@ -273,9 +284,9 @@ def check_red_flag(img, red_points):
     cv2.drawContours(red_mask, [red_points.astype(np.int32)], -1, 255, 1)
     red_img = cv2.bitwise_and(img, img, mask=red_mask)
     red_pixel_count = cv2.countNonZero(cv2.cvtColor(red_img, cv2.COLOR_BGR2GRAY))
-    r_value = np.sum(red_img[:, :, 2]) / red_pixel_count
-    b_value = np.sum(red_img[:, :, 0]) / red_pixel_count
-    g_value = np.sum(red_img[:, :, 1]) / red_pixel_count
+    # r_value = np.sum(red_img[:, :, 2]) / red_pixel_count
+    # b_value = np.sum(red_img[:, :, 0]) / red_pixel_count
+    # g_value = np.sum(red_img[:, :, 1]) / red_pixel_count
     min_x = np.min(red_points[:, 0])
     min_y = np.min(red_points[:, 1])
     max_x = np.max(red_points[:, 0])
@@ -287,7 +298,7 @@ def check_red_flag(img, red_points):
 
     red_box = red_box.reshape((-1, 3)).astype(np.int)
     rb = (red_box[:, 2] - red_box[:, 0]) > 4
-    rg = (red_box[:, 2] - red_box[:, 1]) > 15
+    rg = (red_box[:, 2] - red_box[:, 1]) > 10
     r = red_box[:, 2] > 100
     rel = np.sum(np.logical_and(r, np.logical_and(rb, rg)))
     # if r_value - b_value > 20 and r_value - g_value > 20 and r_value > 100:
@@ -295,33 +306,49 @@ def check_red_flag(img, red_points):
         print('yes, we find red flag')
         return True, rel
     else:
-        return False, rel
+        return False, 0
 
 
-def find_code_area(img, white_box, outer_box, code_box):
+def find_code_area(img, white_box, outer_box, code_box, is_width=False):
     edge1 = np.linalg.norm(outer_box[0, :] - outer_box[1, :])
     edge2 = np.linalg.norm(outer_box[1, :] - outer_box[2, :])
-    if edge1 > edge2:
+    if is_width: # edge1 > edge2:
         red_points = np.round([white_box[0, :], white_box[3, :], outer_box[3, :], outer_box[0, :]]).astype(np.int)
         flag, red_cound = check_red_flag(img, red_points)
         code_points = np.round([outer_box[1, :], outer_box[2, :], code_box[2, :], code_box[1, :]]).astype(np.int)
         rel = [[flag, red_cound, code_points, red_points]]
+        if debug:
+            t_img = np.copy(img)
+            cv2.drawContours(t_img, [code_points], -1, 0, 1)
+            cv2.drawContours(t_img, [red_points], -1, 255, 1)
+            cv2.imwrite("code_points1.png", t_img)
 
         red_points = np.round([white_box[1, :], white_box[2, :], outer_box[2, :], outer_box[1, :]]).astype(np.int)
         flag, red_cound = check_red_flag(img, red_points)
         code_points = np.round([outer_box[0, :], outer_box[3, :], code_box[3, :], code_box[0, :]]).astype(np.int)
         rel.append([flag, red_cound, code_points, red_points])
+        if debug:
+            t_img = np.copy(img)
+            cv2.drawContours(t_img, [code_points, red_points], -1, 0, 1)
+            cv2.imwrite("code_points2.png", t_img)
         return rel
     else:
         red_points = np.round([white_box[2, :], white_box[3, :], outer_box[3, :], outer_box[2, :]]).astype(np.int)
         flag, red_cound = check_red_flag(img, red_points)
         code_points = np.round([outer_box[0, :], outer_box[1, :], code_box[1, :], code_box[0, :]]).astype(np.int)
         rel = [[flag, red_cound, code_points, red_points]]
-
+        if debug:
+            t_img = np.copy(img)
+            cv2.drawContours(t_img, [code_points, red_points], -1, 0, 1)
+            cv2.imwrite("code_points3.png", t_img)
         red_points = np.round([white_box[0, :], white_box[1, :], outer_box[1, :], outer_box[0, :]]).astype(np.int)
         flag, red_cound = check_red_flag(img, red_points)
         code_points = np.round([outer_box[2, :], outer_box[3, :], code_box[3, :], code_box[2, :]]).astype(np.int)
         rel.append([flag, red_cound, code_points, red_points])
+        if debug:
+            t_img = np.copy(img)
+            cv2.drawContours(t_img, [code_points, red_points], -1, 0, 1)
+            cv2.imwrite("code_points4.png", t_img)
         return rel
         # return code_points, red_points
     return [False, 0, None, None]
@@ -331,51 +358,114 @@ def value_2_num(value):
     r_value = value[2]
     b_value = value[0]
     g_value = value[1]
+    print(value)
     # 黑0，白1，红2，绿3
     if g_value - b_value > 50 and g_value - r_value > 50 and g_value > 100 and b_value < 140 and r_value < 140:
         return 3
     if r_value - b_value > 50 and r_value - g_value > 50 and r_value > 100 and b_value < 140 and g_value < 140:
         return 2
-    if r_value > 140 and g_value > 140 and b_value > 140:
+    if r_value > 160 and g_value > 160 and b_value > 160:
         return 1
     if r_value < 50 and g_value < 50 and b_value < 50:
         return 0
     ave_value = np.mean(value)
-    if ave_value > 140:
+    if ave_value > 160:
         return 1
     return 0
 
 
-def cvt_img_2_num(img):
+def cvt_img_2_num(img, thresh=125):
     if debug:
         cv2.imwrite('code_num.jpg', img)
-    arr_mean = np.mean(img, axis=0)
-    num_count = [0] * 4
-    # 黑0，白1，红2，绿3
-    for value in arr_mean:
-        num = value_2_num(value)
-        num_count[num] += 1
-    return np.argmax(num_count)
+    white_count = np.sum(img > thresh)
+    black_count = np.sum(img < thresh)
+    if white_count > black_count * 1.2:
+        return 1
+    else:
+        return 0
 
 
-def crop_possible_region(ctl_box, img):
+def decode_type_5(warped_img, code_width):
+    thresh = 125
+
+    x5 = warped_img[:, :round(code_width), :]
+    x4 = warped_img[:, round(code_width):round(code_width * 2), :]
+    x3 = warped_img[:, round(code_width * 2):round(code_width * 3), :]
+    x2 = warped_img[:, round(code_width * 3):round(code_width * 4), :]
+    x1 = warped_img[:, round(code_width * 4):round(code_width * 5), :]
+
+    x5 = cvt_img_2_num(x5, thresh)
+    x4 = cvt_img_2_num(x4, thresh)
+    x3 = cvt_img_2_num(x3, thresh)
+    x2 = cvt_img_2_num(x2, thresh)
+    x1 = cvt_img_2_num(x1, thresh)
+
+    ctl_code = x5 * pow(2, 4) + x4 * pow(2, 3) + x3 * pow(2, 2) + x2 * pow(2, 1) + x1
+    return ctl_code
+
+
+def decode_type_4(warped_img, code_width):
+    # thresh = np.mean(warped_img)
+
+    x4 = warped_img[:, :round(code_width), :]
+    x3 = warped_img[:, round(code_width):round(code_width * 2), :]
+    x2 = warped_img[:, round(code_width * 2):round(code_width * 3), :]
+    x1 = warped_img[:, round(code_width * 3):round(code_width * 4), :]
+
+    x4 = cvt_img_2_num(x4)
+    x3 = cvt_img_2_num(x3)
+    x2 = cvt_img_2_num(x2)
+    x1 = cvt_img_2_num(x1)
+
+    ctl_code = x4 * pow(2, 3) + x3 * pow(2, 2) + x2 * pow(2, 1) + x1
+    return ctl_code
+
+
+def decode_type_3(warped_img, code_width):
+    # thresh = np.mean(warped_img)
+    x3 = warped_img[:, :round(code_width), :]
+    x2 = warped_img[:, round(code_width):round(code_width * 2), :]
+    x1 = warped_img[:, round(code_width * 2):round(code_width * 3), :]
+
+    x3 = cvt_img_2_num(x3)
+    x2 = cvt_img_2_num(x2)
+    x1 = cvt_img_2_num(x1)
+
+    ctl_code = x3 * pow(2, 2) + x2 * pow(2, 1) + x1
+    return ctl_code
+
+
+def decode_type_2(warped_img, code_width):
+    # thresh = np.mean(warped_img)
+
+    x2 = warped_img[:, :round(code_width), :]
+    x1 = warped_img[:, round(code_width):round(code_width * 2), :]
+
+    x2 = cvt_img_2_num(x2)
+    x1 = cvt_img_2_num(x1)
+
+    ctl_code = x2 * pow(4, 1) + x1
+    return ctl_code
+
+
+def crop_possible_region(ctl_box, img, code_type=4):
     ctl_point = ctl_box[0]
     w, h = ctl_box[1]
     ave_wh = np.mean(ctl_box[1])
     angle = ctl_box[2]
-    gap = ave_wh / 8 + 0.3
+    gap = ave_wh / 4
 
     white_box = cv2.boxPoints((ctl_point, (w, h), angle))
 
     # 宽度增加
-    outer_box = cv2.boxPoints((ctl_point, (w + gap * 3, h), angle))
-    code_box = cv2.boxPoints((ctl_point, (w + gap * 9, h), angle))
+    outer_box = cv2.boxPoints((ctl_point, (w + gap * 0.5, h), angle))
+    code_box = cv2.boxPoints((ctl_point, (w + gap * 2, h), angle))
     rel1 = find_code_area(img, white_box, outer_box, code_box)
 
     # 高度增加
-    outer_box = cv2.boxPoints((ctl_point, (w, h + gap * 3), angle))
-    code_box = cv2.boxPoints((ctl_point, (w, h + gap * 9), angle))
-    rel2 = find_code_area(img, white_box, outer_box, code_box)
+    outer_box = cv2.boxPoints((ctl_point, (w, h + gap * 0.5), angle))
+    code_box = cv2.boxPoints((ctl_point, (w, h + gap * 2), angle))
+    rel2 = find_code_area(img, white_box, outer_box, code_box, is_width=True)
 
     rel = rel1 + rel2
     pixel_counts = [item[1] for item in rel]
@@ -386,7 +476,7 @@ def crop_possible_region(ctl_box, img):
         # cv2.drawContours(img, [red_points], -1, (255, 255, 0), 1)
         cv2.drawContours(img, [white_box.astype(np.int)], -1, (0, 255, 0), 1)
         cv2.circle(img, (round(ctl_point[0]), round(ctl_point[1])), 1, (0, 0, 255))
-        return img, False
+        return img, None, None, False
     else:
         flag, red_count, code_points, red_points = rel[max_index]
     # if debug:
@@ -408,108 +498,90 @@ def crop_possible_region(ctl_box, img):
         else:
             angle = 90 if code_center[0] < red_center[0] else -90
     # center_cord = tuple(map(round, code_center))
-    w, h = max(code_rect[1]), min(code_rect[1])
+    cw, ch = max(code_rect[1]), min(code_rect[1])
     M = cv2.getRotationMatrix2D(tuple(code_center), angle, 1.0)
     # rotate_img = cv2.warpAffine(img, M, tuple(map(int, code_rect[1])), flags=cv2.WARP_INVERSE_MAP,
     rotate_img = cv2.warpAffine(img, M, (img.shape[1], img.shape[0]))
     if debug:
         cv2.imwrite('rotate_img.png', rotate_img)
-    warped_img = rotate_img[int(round(code_center[1] - h / 2 + 2)): int(round(code_center[1] + h / 2 - 1)),
-                 int(round(code_center[0] - w / 2)): int(round(code_center[0] + w / 2)), :]
+    warped_img1 = rotate_img[int(round(code_center[1] - ch / 2 + 1)): int(round(code_center[1] + ch / 2)),
+                 int(round(code_center[0] - cw / 2)): int(round(code_center[0] + cw / 2)), :]
+    warped_img2 = rotate_img[int(round(code_center[1] - h - gap - ch + 1)): int(round(code_center[1] - h - ch - 1)),
+                 int(round(code_center[0] - cw / 2 + 1)): int(round(code_center[0] + cw / 2) + 1), :]
     if debug:
-        cv2.imwrite('warped_code_img.png', warped_img)
-    code_width = warped_img.shape[1] / 5
+        cv2.imwrite('warped_code_img1.png', warped_img1)
+        cv2.imwrite('warped_code_img2.png', warped_img2)
 
-    x5 = warped_img[:, :round(code_width), :]
-    x4 = warped_img[:, round(code_width):round(code_width * 2), :]
-    x3 = warped_img[:, round(code_width * 2):round(code_width * 3), :]
-    x2 = warped_img[:, round(code_width * 3):round(code_width * 4), :]
-    x1 = warped_img[:, round(code_width * 4):round(code_width * 5), :]
+    if code_type == 4:
+        code_width = warped_img1.shape[1] / 2
+        ctl_code1 = decode_type_2(warped_img1, code_width)
+        ctl_code2 = decode_type_2(warped_img2, code_width)
+        ctl_code = ctl_code2 * 4 + ctl_code1
+    elif code_type == 6:
+        code_width = warped_img1.shape[1] / 3
+        ctl_code1 = decode_type_3(warped_img1, code_width)
+        ctl_code2 = decode_type_3(warped_img2, code_width)
+        ctl_code = ctl_code2 * 8 + ctl_code1
+    elif code_type == 8:
+        code_width = warped_img1.shape[1] / 4
+        ctl_code1 = decode_type_4(warped_img1, code_width)
+        ctl_code2 = decode_type_4(warped_img2, code_width)
+        ctl_code = ctl_code2 * 16 + ctl_code1
+    elif code_type == 10:
+        code_width = warped_img1.shape[1] / 5
+        ctl_code1 = decode_type_5(warped_img1, code_width)
+        ctl_code2 = decode_type_5(warped_img2, code_width)
+        ctl_code = ctl_code2 * 32 + ctl_code1
 
-    x5 = cvt_img_2_num(x5)
-    x4 = cvt_img_2_num(x4)
-    x3 = cvt_img_2_num(x3)
-    x2 = cvt_img_2_num(x2)
-    x1 = cvt_img_2_num(x1)
-
-    ctl_code = x5 * pow(4, 4) + x4 * pow(4, 3) + x3 * pow(4, 2) + x2 * pow(4, 1) + x1
     # print(time.time())
-    cv2.drawContours(img, [code_points], -1, (255, 255, 0), 1)
-    cv2.drawContours(img, [red_points], -1, (255, 255, 0), 1)
-    cv2.drawContours(img, [white_box.astype(np.int)], -1, (0, 255, 0), 1)
-    cv2.circle(img, (round(ctl_point[0]), round(ctl_point[1])), 1, (0, 0, 255))
-    cv2.putText(img, str(ctl_code), (int(ctl_point[0]) + 20, int(ctl_point[1])), cv2.FONT_HERSHEY_COMPLEX, 0.5,
-                (0, 0, 255), 1)
+    if debug:
+        cv2.drawContours(img, [code_points], -1, (255, 255, 0), 1)
+        cv2.drawContours(img, [red_points], -1, (255, 255, 0), 1)
+        cv2.drawContours(img, [white_box.astype(np.int)], -1, (0, 255, 0), 1)
+        cv2.circle(img, (round(ctl_point[0]), round(ctl_point[1])), 1, (0, 0, 255))
+        cv2.putText(img, str(ctl_code), (int(ctl_point[0]) + 20, int(ctl_point[1])), cv2.FONT_HERSHEY_COMPLEX, 0.5,
+                    (0, 0, 255), 1)
     # cv2.imwrite('possible.png', img)
 
     # code_rect = cv2.minAreaRect(code_points)
 
     # print(white_box)
     # print(outer_box)
-    return img, True
+    return img, ctl_point, str(ctl_code), True
 
 
-def contour_find(orig_img):
+def contour_find(orig_img, code_type=4):
     # time0 = time.time()
-    # gray_img = cv2.imread(img_file, 0)
-    # orig_img = cv2.imread(img_file)
+    ctl_points, ctl_codes = [], []
 
     img = np.copy(orig_img)
     img[:, :, 2] = np.clip(orig_img[:, :, 2], a_min=0, a_max=200)
     gray_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    # gray_img = cv2.imread(img_file, cv2.IMREAD_GRAYSCALE)
     max_pixel_value = np.max(gray_img)
-    min_pixel_value = np.min(gray_img)
     gray_img = (orig_img[:, :, 0] * 0.11 + orig_img[:, :, 1] * 0.59 + orig_img[:, :, 2] * 0.3).astype(np.uint8)
     if debug:
         cv2.imwrite('gray_img.png', gray_img)
-        # cv2.imwrite('light_img.png', light_img.astype(np.uint8))
-    # gray_img = cv2.blur(gray_img, (3, 3))
-    # cv2.imwrite('gray_img.jpg', gray_img)
     # dst_img = cv2.equalizeHist(gray_img)
     # cv2.imwrite('equa_hist.jpg', dst_img)
     # norm_img = np.zeros_like(gray_img)
     # cv2.normalize(gray_img, norm_img, 0, 128, cv2.NORM_MINMAX, cv2.CV_8U)
     # cv2.imwrite('norm_img.jpg', norm_img)
     time1 = time.time()
-    #
-    # if debug:
-    #     cv2.imwrite('thresh_img.png', thresh_img)
-    # thresh_img = cv2.bilateralFilter(thresh_img, 5, 21, 21)
-    # if debug:
-    #     cv2.imwrite('MORPH_CLOSE.png', thresh_img)
-    # thresh_img = cv2.morphologyEx(thresh_img, cv2.MORPH_OPEN, (3, 3), iterations=2)
-    # if debug:
-    #     cv2.imwrite('MORPH_OPEN.png', thresh_img)
-    _, thresh_img = cv2.threshold(gray_img, max_pixel_value * 0.9, 255, cv2.THRESH_BINARY)
-    # thresh_img = cv2.adaptiveThreshold(gray_img, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, 33, 3)
+    _, thresh_img = cv2.threshold(gray_img, max_pixel_value * 0.8, 255, cv2.THRESH_BINARY)
     if debug:
         cv2.imwrite('thresh_img.png', thresh_img)
-    # 自适应阈值二值化速度太慢了，无法满足要求
-    #
-    # edge = get_edge(thresh_img[:, :, np.newaxis], False)
-    # edge /= max(edge.max(), 0.01)
-    # edge = (edge > 0.2).astype(np.uint8) * 255
-    #
-    # cv2.imwrite("test.png", edge)
+    edge = get_edge(thresh_img[:, :, np.newaxis], False)
+    edge /= max(edge.max(), 0.01)
+    edge = (edge > 0.2).astype(np.uint8) * 255
+    cv2.imwrite("test.png", edge)
     contours, hierarchy = cv2.findContours(thresh_img, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-    print(time.time() - time1)
-    # for cnt in contours:
     hierarchy = np.squeeze(hierarchy)
-    ic, parent_idx = 0, -1
     rects = []
     cnts = []
     if debug:
         cv2.drawContours(img, contours, -1, (255, 255, 0), 1)
         cv2.imwrite('contours0.png', img)
     for i in range(len(contours)):
-        # if hierarchy[i][2] != -1 and ic == 0:
-        #     parent_idx = i
-        #     ic += 1
-        # elif hierarchy[i][2] != -1:
-        #     ic += 1
-        # elif hierarchy[i][2] == -1:
-        #     ic, parent_idx = 0, -1
         parent_idx = i
         if hierarchy[i][2] == -1:
             continue
@@ -520,19 +592,12 @@ def contour_find(orig_img):
         if hierarchy[grand_son][2] != -1:
             continue
 
-        # if ic >= 2:
-        # parent_idx = hierarchy[i][3]
         parent_cnt = contours[parent_idx]
-        # child_cnt = contours[i]
-        ic, parent_idx = 0, -1
 
         chk_cnt, chk_rel = contour_chk(parent_cnt, gray_img)
         if not chk_rel:
             continue
-        # contour_chk(parent_cnt, gray_img)
         rect = cv2.minAreaRect(chk_cnt)
-
-        # print('contour likely:', d1)
         rects.append(rect)
         cnts.append(parent_cnt)
 
@@ -540,21 +605,19 @@ def contour_find(orig_img):
     if len(rects) == 0:
         print("ctl point count:", len(rects))
         print("can't find any ctl point")
-        # return
-    # time1 = time.time()
-    # print(time.time() - time0)
-    # pts = cv2.boxPoints(rects[0]).astype(np.int)
-    # img = cv2.imread(img_file)
-    # cv2.drawContours(img, cnts, -1, (0, 255, 0), 1)
-    # img = cv2.imread(img_file)
+        return ctl_points, ctl_codes
+
     for rect in rects:
-        orig_img, flag = crop_possible_region(rect, orig_img)
+        orig_img, ctl_point, ctl_code, flag = crop_possible_region(rect, orig_img, code_type)
+        ctl_points.append(ctl_point)
+        ctl_codes.append(ctl_code)
         # if flag:
         #     break
-    print(time.time() - time1)
-    cv2.imwrite(os.path.split(img_file)[-1], orig_img)
-
-    print('aaaaa')
+    print(str(ctl_point), str(ctl_code))
+    # print(time.time() - time1)
+    if debug:
+        cv2.imwrite(os.path.split(img_file)[-1], orig_img)
+    return ctl_points, ctl_codes
 
 
 def light_tune(img_file, alpha):
@@ -574,20 +637,42 @@ def contrast_img(img1, c, b):  # 亮度就是每个像素所有通道都加上b
     return dst
 
 
+def batch_ctl_detect(src_file, dst_file):
+    """
+    detect control points in images which are saved in file.
+    :param file: each line represents an image path
+    :return: list of coordinate of control points and its corresponding code
+    """
+    if not os.path.exists(src_file):
+        raise FileExistsError
+    with open(src_file) as f:
+        image_lists = [line.strip() for line in f.readlines()]
+    dst_lines = []
+    for image_file in image_lists:
+        det_result = {'name': image_file}
+        img = cv2.imread(image_file)
+        ctl_points, ctl_codes = contour_find(img)
+        line = image_file
+
+        for point, code in zip(ctl_points, ctl_codes):
+            line += " {} {} {}".format(*point, code)
+        dst_lines.append(line + '\n')
+    with open(dst_file, 'w') as f:
+        f.writelines(dst_lines)
+
+
 if __name__ == '__main__':
-    # hausdorff_sd = cv2.createHausdorffDistanceExtractor()
     # tes_t_img = r'/media/chen/wt/tmp/control_point/0929-2_D_0305_code_a3.jpg'
     # testimg = r'/media/chen/wt/tmp/control_point/0929-2_D_0826_code_a3_v2.jpg'
-    # cv2.namedWindow("test", 0)
     # test_img = r'/media/chen/wt/tmp/control_point/0929-2_D_0856_2.jpg'
-    test_dir = '/Users/wangtao/Desktop/work_data/smart3d/ml_tools/data/0930_err_rel/D/'
+    test_dir = '/Users/wangtao/Desktop/work_data/smart3d/test0328/'
     test_imgs = glob.glob(test_dir + '/*.JPG')
     debug = True
     for img_file in test_imgs:
-        # img_file = r'/Users/wangtao/Desktop/work_data/smart3d/ml_tools/data/0930_err_rel/D/test-D-0859.JPG'
+        # img_file = r'/Users/wangtao/Desktop/work_data/smart3d/test0328/3-408.JPG'
         print(img_file)
         # img = light_tune(img_file, -0.3)
         # img = contrast_img(cv2.imread(img_file), 1.3, 3)
         img = cv2.imread(img_file)
-        contour_find(img)
+        contour_find(img, 8)
     # locate_ctl_point(test_img)
